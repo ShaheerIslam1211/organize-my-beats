@@ -1,100 +1,113 @@
 # Organize My Beats
 
-A smart music organizer that scans your library, reads release years from metadata, and copies tracks into neatly sorted folders by year — perfect for curating your collection or importing into Apple Music.
+A modern, feature-rich music library management and playback application with advanced organization capabilities.
 
 ## Features
 
--   **Metadata Scanning**: Automatically extracts release year information from audio file metadata
--   **Smart Organization**: Creates year-based folders and copies files to their appropriate locations
--   **Multiple Interfaces**:
-    -   Advanced GUI with PyQt5 (modern, feature-rich interface)
-    -   Basic GUI with Tkinter (lightweight alternative)
-    -   Command-line interface for automation and scripting
--   **Detailed Statistics**: View breakdown of songs by year
--   **Preserves Originals**: Only copies files, never modifies or moves your original collection
--   **Handles Missing Metadata**: Option to place files with no year information in a separate folder
+### Music Organization
+
+-   Automatic music file organization by artist, album, genre, year
+-   ID3 tag editing and normalization
+-   Batch processing of music files
+-   Support for multiple file formats (MP3, FLAC, WAV, etc.)
+
+### Modern UI
+
+-   Sleek, responsive dark mode interface
+-   Dashboard with library statistics and quick actions
+-   Grid and list views for music browsing
+-   Album view with cover art and track listings
+-   Advanced search with multiple filters
+-   Drag and drop support for easy file imports
+
+### Advanced Player
+
+-   Album-oriented music playback
+-   Lyrics display and editing
+-   Real-time visualization
+-   Playlist management
+-   Audio quality control
+-   Volume normalization
+
+### Analytics
+
+-   Music listening statistics
+-   Genre distribution charts
+-   BPM and mood analysis
+-   Year-based organization
+-   Artist and album categorization
+
+### Sync & Backup
+
+-   Mobile device synchronization
+-   Cloud backup options
+-   Playlist exporting
+-   Library backup and restore
+
+## System Requirements
+
+-   Python 3.10+
+-   PyQt6 or CustomTkinter for UI
+-   Additional dependencies listed in requirements.txt
 
 ## Installation
 
-### From PyPI (Recommended)
+1. Clone the repository:
 
 ```bash
-pip install organize-my-beats
+git clone https://github.com/yourusername/organize_my_beats.git
+cd organize_my_beats
 ```
 
-### From Source
+2. Install dependencies:
 
 ```bash
-git clone https://github.com/ShaheerIslam1211/organize_my_beats.git
-cd organize_my_beats
-pip install -e .
+pip install -r requirements.txt
+```
+
+3. Run the application:
+
+```bash
+# For basic GUI
+python -m organize_my_beats
+
+# For advanced GUI
+python -m organize_my_beats --advanced
 ```
 
 ## Usage
 
-### Advanced GUI (Recommended)
+### File Organization
 
-The advanced GUI provides a modern interface with more features:
+1. Click "Add Music" to import files
+2. Select organization criteria (artist/album/year/genre)
+3. Click "Organize Now" to process files
 
-```bash
-organize-my-beats-gui
-```
+### Music Playback
 
-Or run as a module:
+1. Browse albums in the "Player" view
+2. Click on album to view tracks
+3. Select track to begin playback
+4. View lyrics in the right panel
 
-```bash
-python -m organize_my_beats
-```
+### Advanced Search
 
-### Basic GUI
+1. Navigate to "Search" view
+2. Enter search criteria (title, artist, album, genre, etc.)
+3. View results and click to play
 
-For a simpler interface:
+### Mobile Sync
 
-```bash
-python -m organize_my_beats --gui
-```
-
-### Command Line
-
-For automation or batch processing:
-
-```bash
-organize-my-beats --cli source_directory destination_directory [options]
-```
-
-Or:
-
-```bash
-python -m organize_my_beats --cli source_directory destination_directory [options]
-```
-
-Command-line options:
-
-```
--o, --overwrite       Overwrite existing files in destination
--u, --unknown-year    Create 'Unknown Year' folder for files without year metadata
--v, --verbose         Show detailed progress information
--s, --stats           Show statistics after completion
-```
-
-## Example
-
-```bash
-organize-my-beats --cli ~/Music ~/Organized_Music --unknown-year --stats
-```
-
-This will scan all audio files in your Music folder, extract year information from metadata, and copy them to year-based folders in the Organized_Music directory. Files without year metadata will be placed in an "Unknown Year" folder, and statistics will be displayed after completion.
-
-## Supported File Formats
-
--   MP3 (.mp3)
--   FLAC (.flac)
--   AAC (.m4a)
--   Ogg Vorbis (.ogg)
--   WAV (.wav)
--   WMA (.wma)
--   AAC (.aac)
+1. Connect your device
+2. Select sync options
+3. Click "Sync Now"
 
 ## License
 
-MIT License
+MIT License - See LICENSE file for details
+
+## Acknowledgements
+
+-   Icon designs by [Designer Name]
+-   Audio processing libraries: mutagen, pygame
+-   UI frameworks: CustomTkinter, PyQt6

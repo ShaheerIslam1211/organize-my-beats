@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Advanced GUI for organize_my_beats using PyQt5.
+Advanced GUI for organize_my_beats using PyQt6.
 
 This module provides a modern, feature-rich interface for the music organizer
 with advanced UI elements and better user interaction.
@@ -14,7 +14,7 @@ from pathlib import Path
 from datetime import datetime
 from mutagen import File as MutagenFile
 
-from PyQt5.QtWidgets import (
+from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
     QWidget,
@@ -40,8 +40,8 @@ from PyQt5.QtWidgets import (
     QStyle,
     QTabWidget,
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
-from PyQt5.QtGui import QIcon, QFont, QColor
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt6.QtGui import QIcon, QFont, QColor
 
 # Supported audio file extensions
 AUDIO_EXTENSIONS = {".mp3", ".flac", ".m4a", ".ogg", ".wav", ".wma", ".aac"}
@@ -182,7 +182,7 @@ class WorkerThread(QThread):
 
 
 class MusicOrganizerAdvanced(QMainWindow):
-    """Advanced PyQt5 GUI for the music organizer application."""
+    """Advanced PyQt6 GUI for the music organizer application."""
 
     def __init__(self):
         super().__init__()
@@ -293,9 +293,13 @@ class MusicOrganizerAdvanced(QMainWindow):
         stats_tab = QWidget()
         stats_layout = QVBoxLayout(stats_tab)
 
-        self.stats_table = QTableWidget(0, 2)
-        self.stats_table.setHorizontalHeaderLabels(["Year", "Number of Songs"])
-        self.stats_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        # Statistics table
+        self.stats_table = QTableWidget()
+        self.stats_table.setColumnCount(2)
+        self.stats_table.setHorizontalHeaderLabels(["Year", "Count"])
+        self.stats_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.stats_table.verticalHeader().setVisible(False)
+        self.stats_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         stats_layout.addWidget(self.stats_table)
 
         self.tabs.addTab(stats_tab, "Statistics")

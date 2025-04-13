@@ -9,7 +9,7 @@ This module allows the package to be run as a script using:
 import sys
 import argparse
 
-from organize_my_beats import run_gui, run_advanced_gui, run_cli
+from organize_my_beats import run
 
 
 def main():
@@ -22,33 +22,17 @@ def main():
     )
 
     # Interface selection arguments
-    interface_group = parser.add_mutually_exclusive_group()
-    interface_group.add_argument(
-        "-g", "--gui", action="store_true", help="Launch the basic GUI (Tkinter)"
-    )
-    interface_group.add_argument(
-        "-a",
-        "--advanced-gui",
+    parser.add_argument(
+        "--advanced",
         action="store_true",
-        help="Launch the advanced GUI (PyQt5)",
-    )
-    interface_group.add_argument(
-        "-c", "--cli", action="store_true", help="Run in command-line mode"
+        help="Launch the advanced GUI (PyQt6)"
     )
 
     # Parse arguments
-    args, remaining_args = parser.parse_known_args()
+    args = parser.parse_args()
 
-    # Determine which interface to launch
-    if args.cli:
-        # Pass remaining arguments to CLI
-        sys.argv = [sys.argv[0]] + remaining_args
-        run_cli()
-    elif args.gui:
-        run_gui()
-    elif args.advanced_gui or not (args.cli or args.gui):
-        # Default to advanced GUI if no interface specified
-        run_advanced_gui()
+    # Run the application
+    run(sys.argv[1:])
 
 
 if __name__ == "__main__":

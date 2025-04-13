@@ -1,41 +1,44 @@
-"""Top-level package for organize_my_beats."""
+"""Organize My Beats - Music Management Application"""
 
-__author__ = "Shaheer Islam"
-__email__ = "shaheer.muzaffar.7@gmail.com"
-__version__ = "1.0"
-
-# Import main functionality for easier access
-from .organize_my_beats import MusicOrganizer, AUDIO_EXTENSIONS, copy_by_year
-
-# Import GUI classes
-from .gui import MusicOrganizerApp
+import sys
+import tkinter as tk
+from tkinter import messagebox
+from PyQt6.QtWidgets import QApplication
+from .gui import ModernMusicOrganizerApp
 from .advanced_gui import MusicOrganizerAdvanced
 
+def run_basic_gui():
+    """Run the basic GUI with customtkinter"""
+    try:
+        import customtkinter as ctk
 
-# Expose main entry points
-def run_gui():
-    """Run the basic Tkinter GUI."""
-    import tkinter as tk
+        # Make sure we're using the right setup
+        ctk.set_appearance_mode("dark")
 
-    root = tk.Tk()
-    app = MusicOrganizerApp(root)
-    root.mainloop()
-
+        # Initialize app without TkinterDnD requirement
+        app = ModernMusicOrganizerApp()
+        app.mainloop()
+    except Exception as e:
+        print(f"Error running basic GUI: {e}")
+        messagebox.showerror("Error", f"An error occurred: {e}")
 
 def run_advanced_gui():
-    """Run the advanced PyQt5 GUI."""
-    import sys
-    from PyQt5.QtWidgets import QApplication
+    """Run the advanced GUI with PyQt6"""
+    try:
+        app = QApplication(sys.argv)
+        window = MusicOrganizerAdvanced()
+        window.apply_dark_theme()
+        window.show()
+        sys.exit(app.exec())
+    except Exception as e:
+        print(f"Error running advanced GUI: {e}")
 
-    app = QApplication(sys.argv)
-    window = MusicOrganizerAdvanced()
-    window.show()
-    sys.exit(app.exec_())
+def run(args=None):
+    """Run the application with specified arguments"""
+    if args and "--advanced" in args:
+        run_advanced_gui()
+    else:
+        run_basic_gui()
 
-
-def run_cli():
-    """Run the command-line interface."""
-    from .cli import main
-    import sys
-
-    sys.exit(main())
+if __name__ == "__main__":
+    run(sys.argv[1:])

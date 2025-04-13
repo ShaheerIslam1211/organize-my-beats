@@ -28,10 +28,13 @@ classifiers = [
 ]
 license = {text = "MIT license"}
 dependencies = [
-    "mutagen",  # For reading audio metadata
-    "PyQt5",    # For advanced GUI
-    "pathlib",  # For path handling
-    "argparse", # For command-line argument parsing
+    "mutagen",           # For reading audio metadata
+    "customtkinter",     # For modern UI components
+    "pillow",           # For image handling
+    "matplotlib",       # For charts and visualizations
+    "numpy",            # For data processing
+    "psutil",           # For system monitoring
+    "tkinterdnd2",      # For drag and drop support
 ]
 
 [project.scripts]
@@ -43,13 +46,12 @@ organize-my-beats-gui = "organize_my_beats:run_advanced_gui"
 [project.optional-dependencies]
 dev = [
     "coverage",  # testing
-    "mypy",  # linting
-    "pytest",  # testing
-    "ruff"  # linting
+    "mypy",     # linting
+    "pytest",   # testing
+    "ruff"      # linting
 ]
 
 [project.urls]
-
 bugs = "https://github.com/ShaheerIslam1211/organize_my_beats/issues"
 changelog = "https://github.com/ShaheerIslam1211/organize_my_beats/blob/master/changelog.md"
 homepage = "https://github.com/ShaheerIslam1211/organize_my_beats"
