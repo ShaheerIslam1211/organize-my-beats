@@ -332,7 +332,7 @@ class MusicOrganizerApp:
             button_frame,
             text="Start Organization",
             style="Primary.TButton",
-            command=self.start_processing
+            command=self.start_organization
         )
         self.start_button.pack(side="left", padx=5)
 
@@ -340,7 +340,7 @@ class MusicOrganizerApp:
             button_frame,
             text="Stop",
             style="Secondary.TButton",
-            command=self.stop_processing,
+            command=self.stop_organization,
             state="disabled"
         )
         self.stop_button.pack(side="left", padx=5)
@@ -1285,6 +1285,108 @@ class MusicOrganizerApp:
             except Exception as e:
                 self.log(f"❌ Error resetting settings: {str(e)}")
                 messagebox.showerror("Error", f"Failed to reset settings: {str(e)}")
+
+    def start_organization(self):
+        """Start the organization process"""
+        if not self.source_path.get() or not self.dest_path.get():
+            messagebox.showerror("Error", "Please select both source and destination folders")
+            return
+
+        if self.processing:
+            messagebox.showwarning("Warning", "Organization is already in progress")
+            return
+
+        self.processing = True
+        self.stats = {
+            "total": 0,
+            "copied": 0,
+            "skipped": 0,
+            "no_year": 0,
+            "errors": 0,
+            "years": {}
+        }
+        self.update_stats_display()
+
+        # Disable controls during processing
+        self.toggle_controls(False)
+
+        # Start organization in a separate thread
+        self.worker_thread = threading.Thread(target=self.process_files)
+        self.worker_thread.start()
+
+    def process_files(self):
+        """Process files in a separate thread"""
+        try:
+            from .organize_my_beats import MusicOrganizer
+
+            def progress_callback(processed, total, stats):
+                self.progress_value.set((processed / total) * 100 if total > 0 else 0)
+                self.current_file.set(f"Processing: {processed}/{total} files")
+                self.stats = stats
+                self.update_stats_display()
+                self.root.update_idletasks()
+
+            organizer = MusicOrganizer(
+                Path(self.source_path.get()),
+                Path(self.dest_path.get()),
+                progress_callback
+            )
+
+            # Start the organization process
+            stats = organizer.organize()
+
+            self.processing = False
+            self.toggle_controls(True)
+            self.status_text.set("Organization complete!")
+            self.update_stats_display()
+
+            # Show completion message
+            messagebox.showinfo(
+                "Complete",
+                f"Organization complete!\n\n"
+                f"Total files: {stats['total']}\n"
+                f"Copied: {stats['copied']}\n"
+                f"Skipped: {stats['skipped']}\n"
+                f"No year found: {stats['no_year']}\n"
+                f"Errors: {stats['errors']}"
+            )
+
+        except Exception as e:
+            self.processing = False
+            self.toggle_controls(True)
+            self.status_text.set("Error during organization")
+            messagebox.showerror("Error", f"An error occurred: {str(e)}")
+
+    def stop_organization(self):
+        """Stop the organization process"""
+        if not self.processing:
+            return
+
+        if messagebox.askyesno("Confirm", "Are you sure you want to stop the organization process?"):
+            self.processing = False
+            self.status_text.set("Organization stopped")
+            self.toggle_controls(True)
+
+    def toggle_controls(self, enabled):
+        """Enable or disable all controls"""
+        self.start_button.config(state=enabled)
+        self.stop_button.config(state=enabled)
+        self.sources_list.config(state=enabled)
+        self.batch_start_button.config(state=enabled)
+        self.batch_stop_button.config(state=enabled)
+
+    def update_stats_display(self):
+        """Update the statistics display in the GUI"""
+        self.total_files_label.config(text=str(self.stats["total"]))
+        self.copied_files_label.config(text=str(self.stats["copied"]))
+        self.skipped_files_label.config(text=str(self.stats["skipped"]))
+        self.no_year_files_label.config(text=str(self.stats["no_year"]))
+        self.error_files_label.config(text=str(self.stats["errors"]))
+
+        # Update year distribution tree
+        self.year_tree.delete(*self.year_tree.get_children())
+        for year, count in self.stats["years"].items():
+            self.year_tree.insert("", "end", values=(year, count))
 
 
 if __name__ == "__main__":

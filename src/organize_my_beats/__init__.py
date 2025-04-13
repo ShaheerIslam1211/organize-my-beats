@@ -5,7 +5,7 @@ __email__ = "shaheer.muzaffar.7@gmail.com"
 __version__ = "1.0"
 
 # Import main functionality for easier access
-from .organize_my_beats import get_song_year, copy_by_year, AUDIO_EXTENSIONS
+from .organize_my_beats import MusicOrganizer, AUDIO_EXTENSIONS, copy_by_year
 
 # Import GUI classes
 from .gui import MusicOrganizerApp
