@@ -1,0 +1,4 @@
+mutagen>=1.45.1
+pillow>=9.0.0
+pathlib>=1.0.1
+typing-extensions>=4.0.0

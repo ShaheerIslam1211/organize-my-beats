@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "organize_my_beats"
+version = "1.0"
+description = "A smart music organizer that scans your library, reads release years from metadata, and copies tracks into neatly sorted folders by year — perfect for curating your collection or importing into Apple Music."
+readme = "README.rst"
+authors = [
+  {name = "Shaheer Islam", email = "shaheer.muzaffar.7@gmail.com"}
+]
+maintainers = [
+  {name = "Shaheer Islam", email = "shaheer.muzaffar.7@gmail.com"}
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Natural Language :: English",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.7",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Topic :: Multimedia :: Sound/Audio",
+  "Topic :: Utilities"
+]
+license = {text = "MIT license"}
+dependencies = [
+    "mutagen",  # For reading audio metadata
+    "PyQt5",    # For advanced GUI
+    "pathlib",  # For path handling
+    "argparse", # For command-line argument parsing
+]
+
+[project.scripts]
+organize-my-beats = "organize_my_beats.__main__:main"
+
+[project.gui-scripts]
+organize-my-beats-gui = "organize_my_beats:run_advanced_gui"
+
+[project.optional-dependencies]
+dev = [
+    "coverage",  # testing
+    "mypy",  # linting
+    "pytest",  # testing
+    "ruff"  # linting
+]
+
+[project.urls]
+
+bugs = "https://github.com/ShaheerIslam1211/organize_my_beats/issues"
+changelog = "https://github.com/ShaheerIslam1211/organize_my_beats/blob/master/changelog.md"
+homepage = "https://github.com/ShaheerIslam1211/organize_my_beats"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+"*" = ["*.*"]
+
+
+
+
+# Mypy
+# ----
+
+[tool.mypy]
+files = "."
+
+# Use strict defaults
+strict = true
+warn_unreachable = true
+warn_no_return = true
+
+[[tool.mypy.overrides]]
+# Don't require test functions to include types
+module = "tests.*"
+allow_untyped_defs = true
+disable_error_code = "attr-defined"
