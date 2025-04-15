@@ -28,6 +28,7 @@ from PyQt6.QtGui import QPalette, QColor
 from tkinterdnd2 import DND_FILES, TkinterDnD
 import psutil
 from .player_view import AdvancedMusicPlayer
+from .organization_view import OrganizationView
 
 AUDIO_EXTENSIONS = [".mp3", ".flac", ".m4a", ".ogg", ".wav", ".wma", ".aac"]
 
@@ -219,6 +220,7 @@ class ModernMusicOrganizerApp(ctk.CTk):
             ("📁 Files", self.show_files, "Browse and manage your music files"),
             ("📊 Statistics", self.show_statistics, "View detailed analytics"),
             ("🔍 Search", self.show_search, "Search your music library"),
+            ("🗄️ Organize", self.show_organization, "Organize music by year and metadata"),
             ("📱 Mobile Sync", self.show_mobile_sync, "Sync with mobile devices"),
             ("⚙️ Settings", self.show_settings, "Configure application settings")
         ]
@@ -1840,6 +1842,30 @@ class ModernMusicOrganizerApp(ctk.CTk):
         thread = threading.Thread(target=simulate_progress)
         thread.daemon = True
         thread.start()
+
+    def show_organization(self):
+        """Show the organization view for year-based categorization"""
+        self.clear_main_content()
+
+        # Create the organization view if it doesn't exist
+        organization_view = OrganizationView(self.main_content, fg_color="transparent")
+        organization_view.parent = self  # Set parent for callbacks
+        organization_view.pack(fill="both", expand=True)
+
+    def load_directory_in_player(self, directory_path):
+        """Load music files from a directory into the player"""
+        # Show player view
+        self.show_player()
+
+        # Load directory if player exists
+        if self.player_view:
+            success = self.player_view.load_directory(directory_path)
+
+            if not success:
+                messagebox.showerror(
+                    "Error Loading Music",
+                    f"Could not load music from {directory_path}. Please check the directory."
+                )
 
 def main():
     app = QApplication(sys.argv)

@@ -439,19 +439,44 @@ class AdvancedMusicPlayer(ctk.CTkFrame):
         self.track_title_label.configure(text=track["title"])
         self.artist_label.configure(text=track["artist"])
 
-        # In a real app, we would load and play the actual track
-        # pygame.mixer.music.load(track_path)
-        # pygame.mixer.music.play()
+        # Check if track has a file path (real track)
+        if "file_path" in track and os.path.exists(track["file_path"]):
+            # Play the actual file using pygame
+            try:
+                pygame.mixer.music.load(track["file_path"])
+                pygame.mixer.music.play()
 
-        # Update button to show pause icon
+                # Update button to show pause icon
+                self.play_button.configure(text="⏸️")
+                self.paused = False
+
+                # Reset position and get actual track length
+                self.current_position = 0
+
+                # Get actual duration from file
+                import mutagen
+                audio = mutagen.File(track["file_path"])
+                if audio and hasattr(audio.info, 'length'):
+                    self.track_length = audio.info.length
+                else:
+                    # Use approximate duration from track info
+                    duration = track.get("duration", "0:00")
+                    mins, secs = map(int, duration.split(':'))
+                    self.track_length = mins * 60 + secs
+
+                self.total_time_label.configure(text=self.format_time(self.track_length))
+
+                # Show lyrics
+                self.show_lyrics()
+                return
+            except Exception as e:
+                print(f"Error playing track: {e}")
+
+        # Fall back to dummy playback for demo tracks
         self.play_button.configure(text="⏸️")
         self.paused = False
-
-        # Set track length (in a real app, get from the file)
         self.track_length = 225  # 3:45 in seconds
         self.total_time_label.configure(text=self.format_time(self.track_length))
-
-        # Generate sample lyrics
         self.show_lyrics()
 
     def show_lyrics(self):
@@ -549,11 +574,21 @@ With something to remember
         """Update the progress bar in a separate thread"""
         while self._update_thread_running:
             if self.current_track and not self.paused:
-                # In a real app, we'd get actual position
-                # pos = pygame.mixer.music.get_pos() / 1000
-
-                # For demo, increment position
-                self.current_position = min(self.current_position + 0.1, self.track_length)
+                if "file_path" in self.current_track and os.path.exists(self.current_track["file_path"]):
+                    # Real track - get actual position
+                    try:
+                        if pygame.mixer.music.get_busy():
+                            pos = pygame.mixer.music.get_pos() / 1000
+                            self.current_position = pos
+                        else:
+                            # Track finished
+                            self.next_track()
+                    except:
+                        # Fallback if pygame fails
+                        self.current_position = min(self.current_position + 0.1, self.track_length)
+                else:
+                    # Dummy track - increment position
+                    self.current_position = min(self.current_position + 0.1, self.track_length)
 
                 # Update progress bar
                 if self.track_length > 0:
@@ -575,6 +610,188 @@ With something to remember
         if self._update_thread.is_alive():
             self._update_thread.join(1.0)
         # pygame.mixer.quit()
+
+    def load_directory(self, directory_path):
+        """Load music from a directory and populate the player"""
+        if not os.path.exists(directory_path) or not os.path.isdir(directory_path):
+            return False
+
+        # Check if this is a year directory
+        is_year_dir = os.path.basename(directory_path).isdigit()
+
+        # Find the album scrollable frame
+        album_scroll = None
+        left_panel = None
+
+        # Look for left_panel (first child of self)
+        for widget in self.winfo_children():
+            if isinstance(widget, ctk.CTkFrame) and widget.grid_info().get('column') == 0:
+                left_panel = widget
+                break
+
+        if left_panel:
+            # Find scrollable frame in left_panel (albums container)
+            for widget in left_panel.winfo_children():
+                if isinstance(widget, ctk.CTkScrollableFrame):
+                    album_scroll = widget
+                    break
+
+        if not album_scroll:
+            print("Could not find album scroll view")
+            return False
+
+        # Clear current albums
+        for widget in album_scroll.winfo_children():
+            widget.destroy()
+
+        # Create an album for this directory
+        if is_year_dir:
+            # Year directory - create one album for the year
+            year = os.path.basename(directory_path)
+            album = {
+                "title": f"Year {year}",
+                "artist": "Various Artists",
+                "year": year,
+                "cover": "📅",
+                "directory": directory_path
+            }
+            self.create_album_item(album_scroll, album)
+
+            # Show this album
+            self.show_year_album(album)
+        else:
+            # Regular directory - scan for audio files and group by album
+            audio_files = []
+            for root, _, files in os.walk(directory_path):
+                for file in files:
+                    if any(file.lower().endswith(ext) for ext in ['.mp3', '.flac', '.m4a', '.ogg', '.wav']):
+                        audio_files.append(os.path.join(root, file))
+
+            # Group by album
+            albums = self._group_files_by_album(audio_files)
+
+            # Create album items
+            for album in albums:
+                self.create_album_item(album_scroll, album)
+
+            # Show first album if any
+            if albums:
+                self.show_album(albums[0])
+
+        return True
+
+    def _group_files_by_album(self, audio_files):
+        """Group audio files by album"""
+        albums = {}
+
+        for file_path in audio_files:
+            try:
+                # Extract metadata
+                import mutagen
+                audio = mutagen.File(file_path, easy=True)
+
+                if audio:
+                    # Get album and artist info
+                    album_name = audio.get('album', ['Unknown Album'])[0]
+                    artist_name = audio.get('artist', ['Unknown Artist'])[0]
+                    year = audio.get('date', [''])[0][:4]  # Extract year from date
+
+                    # Create album key
+                    album_key = f"{album_name}|{artist_name}"
+
+                    if album_key not in albums:
+                        albums[album_key] = {
+                            "title": album_name,
+                            "artist": artist_name,
+                            "year": year if year.isdigit() else "Unknown",
+                            "cover": "🎵",  # Default cover
+                            "tracks": []
+                        }
+
+                    # Add track to album
+                    title = audio.get('title', [os.path.basename(file_path)])[0]
+                    track_num = audio.get('tracknumber', ['0'])[0].split('/')[0]
+
+                    # Get duration
+                    duration = "0:00"
+                    if hasattr(audio.info, 'length'):
+                        mins = int(audio.info.length // 60)
+                        secs = int(audio.info.length % 60)
+                        duration = f"{mins}:{secs:02d}"
+
+                    albums[album_key]["tracks"].append({
+                        "title": title,
+                        "artist": artist_name,
+                        "album": album_name,
+                        "duration": duration,
+                        "track_num": int(track_num) if track_num.isdigit() else 0,
+                        "file_path": file_path
+                    })
+            except Exception as e:
+                print(f"Error processing {os.path.basename(file_path)}: {e}")
+
+        # Sort tracks in each album by track number
+        for album_key in albums:
+            albums[album_key]["tracks"].sort(key=lambda t: t["track_num"])
+
+        # Convert to list and sort by album name
+        album_list = list(albums.values())
+        album_list.sort(key=lambda a: a["title"])
+
+        return album_list
+
+    def show_year_album(self, album):
+        """Display year album with tracks from the directory"""
+        self.current_album = album
+
+        # Update album label
+        self.album_label.configure(text=f"{album['title']} ({album['year']})")
+
+        # Clear existing tracks
+        for widget in self.tracks_list.winfo_children():
+            widget.destroy()
+
+        # Get tracks from directory
+        directory = album.get("directory", "")
+        if not directory or not os.path.isdir(directory):
+            return
+
+        tracks = []
+        for file in os.listdir(directory):
+            file_path = os.path.join(directory, file)
+            if os.path.isfile(file_path) and any(file.lower().endswith(ext) for ext in ['.mp3', '.flac', '.m4a', '.ogg', '.wav']):
+                try:
+                    # Extract metadata
+                    import mutagen
+                    audio = mutagen.File(file_path, easy=True)
+
+                    if audio:
+                        # Get track info
+                        title = audio.get('title', [file])[0]
+                        artist = audio.get('artist', ['Unknown Artist'])[0]
+
+                        # Get duration
+                        duration = "0:00"
+                        if hasattr(audio.info, 'length'):
+                            mins = int(audio.info.length // 60)
+                            secs = int(audio.info.length % 60)
+                            duration = f"{mins}:{secs:02d}"
+
+                        tracks.append({
+                            "title": title,
+                            "artist": artist,
+                            "duration": duration,
+                            "file_path": file_path
+                        })
+                except Exception as e:
+                    print(f"Error processing {file}: {e}")
+
+        # Create playlist from these tracks
+        self.current_playlist = tracks
+
+        # Create track items
+        for i, track in enumerate(tracks):
+            self.create_track_item(i, track)
 
 def main():
     app = ctk.CTk()
