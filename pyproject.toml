@@ -30,8 +30,6 @@ license = {text = "MIT license"}
 dependencies = [
     "mutagen",  # For reading audio metadata
     "PyQt5",    # For advanced GUI
-    "pathlib",  # For path handling
-    "argparse", # For command-line argument parsing
 ]
 
 [project.scripts]

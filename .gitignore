@@ -30,6 +30,7 @@ wheels/
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+!scripts/OrganizeMyBeats.spec
 
 # Installer logs
 pip-log.txt
@@ -107,4 +108,8 @@ ENV/
 # IDE settings
 .vscode/
 .idea/
+
+# Generated app icon (built from assets/source_icon.png)
+assets/AppIcon.icns
+assets/app_icon.png
 
