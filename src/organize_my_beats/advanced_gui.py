@@ -1,465 +1,751 @@
 #!/usr/bin/env python
-"""
-Advanced GUI for organize_my_beats using PyQt5.
+"""Advanced GUI for organize_my_beats using PyQt5."""
 
-This module provides a modern, feature-rich interface for the music organizer
-with advanced UI elements and better user interaction.
-"""
+from __future__ import annotations
 
-import os
+import csv
 import sys
-import shutil
-import threading
+import webbrowser
 from pathlib import Path
-from datetime import datetime
-from mutagen import File as MutagenFile
 
+from PyQt5.QtCore import Qt, QSettings, QThread, pyqtSignal
+from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtWidgets import (
     QApplication,
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
+    QAbstractItemView,
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
     QHBoxLayout,
-    QPushButton,
+    QHeaderView,
     QLabel,
     QLineEdit,
-    QFileDialog,
-    QProgressBar,
-    QTextEdit,
-    QGroupBox,
-    QCheckBox,
-    QSpinBox,
-    QComboBox,
+    QMainWindow,
     QMessageBox,
+    QProgressBar,
+    QPushButton,
     QSplitter,
-    QFrame,
+    QStatusBar,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
-    QHeaderView,
-    QAbstractItemView,
-    QStyle,
-    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
-from PyQt5.QtGui import QIcon, QFont, QColor
 
-# Supported audio file extensions
-AUDIO_EXTENSIONS = {".mp3", ".flac", ".m4a", ".ogg", ".wav", ".wma", ".aac"}
+from organize_my_beats.engine import (
+    DuplicateMode,
+    NamingTemplate,
+    OperationMode,
+    OrganizeMode,
+    OrganizeOptions,
+    OrganizeStats,
+    TrackMetadata,
+    format_duration,
+    organize_library,
+    scan_library,
+)
+from organize_my_beats.report import BatchReport
+
+APP_STYLE = """
+QMainWindow, QWidget {
+    background-color: #1e1e2e;
+    color: #e0e0e0;
+}
+QGroupBox {
+    border: 1px solid #3a3a5c;
+    border-radius: 8px;
+    margin-top: 12px;
+    padding-top: 14px;
+    font-weight: bold;
+    color: #a0a0ff;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 6px;
+}
+QLineEdit, QComboBox, QTextEdit, QTableWidget {
+    background-color: #2a2a3e;
+    border: 1px solid #4a4a6a;
+    border-radius: 6px;
+    padding: 6px;
+    color: #f0f0f0;
+}
+QPushButton {
+    background-color: #4a4a8a;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-weight: bold;
+}
+QPushButton:hover { background-color: #5a5aaa; }
+QPushButton:disabled { background-color: #3a3a4a; color: #888; }
+QPushButton#startBtn { background-color: #2e7d32; }
+QPushButton#startBtn:hover { background-color: #388e3c; }
+QPushButton#stopBtn { background-color: #c62828; }
+QPushButton#stopBtn:hover { background-color: #d32f2f; }
+QTabWidget::pane { border: 1px solid #3a3a5c; border-radius: 6px; }
+QTabBar::tab {
+    background: #2a2a3e;
+    color: #aaa;
+    padding: 8px 18px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    margin-right: 2px;
+}
+QTabBar::tab:selected { background: #4a4a8a; color: white; }
+QProgressBar {
+    border: 1px solid #4a4a6a;
+    border-radius: 6px;
+    text-align: center;
+    background: #2a2a3e;
+}
+QProgressBar::chunk { background-color: #6a6aff; border-radius: 5px; }
+QHeaderView::section {
+    background-color: #2a2a3e;
+    color: #a0a0ff;
+    padding: 6px;
+    border: none;
+}
+QStatusBar { background: #161622; color: #888; }
+"""
 
 
-class WorkerThread(QThread):
-    """Worker thread to handle file processing without freezing the UI."""
+class ScanWorker(QThread):
+    progress = pyqtSignal(int, int, str)
+    finished = pyqtSignal(list)
 
-    update_signal = pyqtSignal(str)  # Signal for log updates
-    progress_signal = pyqtSignal(int)  # Signal for progress updates
-    finished_signal = pyqtSignal(dict)  # Signal for completion with stats
-
-    def __init__(self, source_dir, dest_dir, options):
+    def __init__(self, source: str, include_subfolders: bool):
         super().__init__()
-        self.source_dir = Path(source_dir)
-        self.dest_dir = Path(dest_dir)
-        self.options = options
-        self.running = True
-        self.total_files = 0
-        self.processed_files = 0
-        self.stats = {
-            "total": 0,
-            "copied": 0,
-            "skipped": 0,
-            "no_year": 0,
-            "errors": 0,
-            "years": {},
-        }
+        self.source = Path(source)
+        self.include_subfolders = include_subfolders
+        self._stop = False
 
     def run(self):
-        """Main processing function that runs in a separate thread."""
-        self.update_signal.emit("🔍 Scanning for audio files...")
-
-        # First count total files for progress tracking
-        self.count_files(self.source_dir)
-        self.update_signal.emit(f"Found {self.total_files} audio files to process")
-
-        # Then process the files
-        self.process_directory(self.source_dir)
-
-        # Emit completion signal with statistics
-        self.finished_signal.emit(self.stats)
-
-    def count_files(self, directory):
-        """Count total audio files for progress tracking."""
-        for item in directory.glob("**/*"):
-            if item.is_file() and item.suffix.lower() in AUDIO_EXTENSIONS:
-                self.total_files += 1
-
-    def process_directory(self, directory):
-        """Process all audio files in a directory and its subdirectories."""
-        for item in directory.glob("**/*"):
-            if not self.running:  # Check if we should stop
-                return
-
-            if item.is_file() and item.suffix.lower() in AUDIO_EXTENSIONS:
-                self.process_file(item)
-                self.processed_files += 1
-                progress = (
-                    int((self.processed_files / self.total_files) * 100)
-                    if self.total_files > 0
-                    else 0
-                )
-                self.progress_signal.emit(progress)
-
-    def process_file(self, file_path):
-        """Process a single audio file."""
-        self.stats["total"] += 1
-
-        try:
-            year = self.get_song_year(file_path)
-            if year:
-                # Update year statistics
-                if year not in self.stats["years"]:
-                    self.stats["years"][year] = 0
-                self.stats["years"][year] += 1
-
-                # Create year folder and copy file
-                year_folder = self.dest_dir / year
-                year_folder.mkdir(parents=True, exist_ok=True)
-                dest_file = year_folder / file_path.name
-
-                if not dest_file.exists() or self.options.get("overwrite", False):
-                    shutil.copy2(file_path, dest_file)
-                    self.stats["copied"] += 1
-                    self.update_signal.emit(f"✅ Copied to {year}: {file_path.name}")
-                else:
-                    self.stats["skipped"] += 1
-                    self.update_signal.emit(
-                        f"⚠️ Skipped (already exists): {file_path.name}"
-                    )
-            else:
-                self.stats["no_year"] += 1
-                self.update_signal.emit(f"❓ No year found: {file_path.name}")
-
-                # Handle files with no year metadata if option is enabled
-                if self.options.get("unknown_year_folder", False):
-                    unknown_folder = self.dest_dir / "Unknown Year"
-                    unknown_folder.mkdir(parents=True, exist_ok=True)
-                    dest_file = unknown_folder / file_path.name
-
-                    if not dest_file.exists() or self.options.get("overwrite", False):
-                        shutil.copy2(file_path, dest_file)
-                        self.update_signal.emit(
-                            f"📁 Copied to Unknown Year folder: {file_path.name}"
-                        )
-        except Exception as e:
-            self.stats["errors"] += 1
-            self.update_signal.emit(f"❌ Error processing {file_path.name}: {str(e)}")
-
-    def get_song_year(self, filepath):
-        """Extract year information from audio file metadata."""
-        try:
-            audio = MutagenFile(filepath, easy=True)
-            if not audio:
-                return None
-
-            # Try common fields for year information
-            for tag in ("date", "year", "originaldate", "copyright"):
-                if tag in audio:
-                    year_str = str(audio[tag][0])
-                    # Extract year from various formats (YYYY, YYYY-MM-DD, etc.)
-                    if len(year_str) >= 4 and year_str[:4].isdigit():
-                        year = year_str[:4]
-                        # Validate year is reasonable (between 1900 and current year + 1)
-                        current_year = datetime.now().year
-                        if 1900 <= int(year) <= current_year + 1:
-                            return year
-        except Exception as e:
-            self.update_signal.emit(
-                f"⚠️ Error reading metadata: {filepath.name} - {str(e)}"
-            )
-        return None
+        tracks = scan_library(
+            self.source,
+            self.include_subfolders,
+            lambda cur, total, msg: self.progress.emit(cur, total, msg),
+        )
+        self.finished.emit(tracks)
 
     def stop(self):
-        """Stop the processing thread."""
-        self.running = False
+        self._stop = True
+
+
+class OrganizeWorker(QThread):
+    progress = pyqtSignal(int, int, str)
+    finished = pyqtSignal(object)
+
+    def __init__(self, source: str, dest: str, options: OrganizeOptions):
+        super().__init__()
+        self.source = Path(source)
+        self.dest = Path(dest)
+        self.options = options
+        self._stop = False
+
+    def run(self):
+        stats = organize_library(
+            self.source,
+            self.dest,
+            self.options,
+            lambda cur, total, msg: self.progress.emit(cur, total, msg),
+            lambda: self._stop,
+        )
+        self.finished.emit(stats)
+
+    def stop(self):
+        self._stop = True
+
+
+class StatCard(QFrame):
+    def __init__(self, title: str, value: str = "0"):
+        super().__init__()
+        self.setFrameShape(QFrame.StyledPanel)
+        self.setStyleSheet(
+            "QFrame { background:#2a2a3e; border:1px solid #4a4a6a; border-radius:8px; }"
+        )
+        layout = QVBoxLayout(self)
+        self.value_label = QLabel(value)
+        self.value_label.setAlignment(Qt.AlignCenter)
+        self.value_label.setFont(QFont("Helvetica", 22, QFont.Bold))
+        self.value_label.setStyleSheet("color:#8af; border:none;")
+        title_label = QLabel(title)
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet("color:#888; border:none; font-size:11px;")
+        layout.addWidget(self.value_label)
+        layout.addWidget(title_label)
+
+    def set_value(self, value: str):
+        self.value_label.setText(value)
 
 
 class MusicOrganizerAdvanced(QMainWindow):
-    """Advanced PyQt5 GUI for the music organizer application."""
+    SETTINGS_KEY = "OrganizeMyBeats"
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Organize My Beats - Advanced Music Organizer")
-        self.setMinimumSize(900, 700)
-
-        # Initialize UI components
-        self.init_ui()
-
-        # Worker thread
+        self.settings = QSettings(self.SETTINGS_KEY, "OrganizeMyBeats")
         self.worker = None
+        self.scan_results: list[TrackMetadata] = []
+        self.last_stats: OrganizeStats | None = None
 
-    def init_ui(self):
-        """Initialize the user interface."""
-        # Main widget and layout
-        main_widget = QWidget()
-        main_layout = QVBoxLayout(main_widget)
+        self.setWindowTitle("Organize My Beats")
+        self.setMinimumSize(1050, 750)
+        self.setStyleSheet(APP_STYLE)
+        self._build_ui()
+        self._load_settings()
+        self.statusBar().showMessage("Ready — scan your library or start organizing")
 
-        # Create tab widget for different views
+    def _build_ui(self):
+        central = QWidget()
+        self.setCentralWidget(central)
+        layout = QVBoxLayout(central)
+
+        header = QLabel("Organize My Beats")
+        header.setFont(QFont("Helvetica", 20, QFont.Bold))
+        header.setStyleSheet("color:#a0a0ff; padding:4px 0;")
+        sub = QLabel("Sort your music by year, artist, album, genre, or decade")
+        sub.setStyleSheet("color:#777; margin-bottom:8px;")
+        layout.addWidget(header)
+        layout.addWidget(sub)
+
         self.tabs = QTabWidget()
-        main_layout.addWidget(self.tabs)
+        layout.addWidget(self.tabs)
 
-        # Main tab
-        main_tab = QWidget()
-        main_tab_layout = QVBoxLayout(main_tab)
+        self.tabs.addTab(self._build_organize_tab(), "Organize")
+        self.tabs.addTab(self._build_library_tab(), "Library Preview")
+        self.tabs.addTab(self._build_stats_tab(), "Statistics")
 
-        # Source and destination selection
-        folder_group = QGroupBox("Folder Selection")
-        folder_layout = QVBoxLayout(folder_group)
+        self.setStatusBar(QStatusBar())
 
-        # Source folder selection
-        source_layout = QHBoxLayout()
-        source_layout.addWidget(QLabel("Source Folder:"))
-        self.source_path = QLineEdit()
-        source_layout.addWidget(self.source_path)
-        source_btn = QPushButton("Browse")
-        source_btn.clicked.connect(self.browse_source)
-        source_layout.addWidget(source_btn)
-        folder_layout.addLayout(source_layout)
+    def _folder_row(self, label: str, attr: str, browse_slot) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.addWidget(QLabel(label))
+        field = QLineEdit()
+        field.setPlaceholderText(f"Select {label.lower()}...")
+        setattr(self, attr, field)
+        btn = QPushButton("Browse")
+        btn.clicked.connect(browse_slot)
+        row.addWidget(field, stretch=1)
+        row.addWidget(btn)
+        return row
 
-        # Destination folder selection
-        dest_layout = QHBoxLayout()
-        dest_layout.addWidget(QLabel("Destination Folder:"))
-        self.dest_path = QLineEdit()
-        dest_layout.addWidget(self.dest_path)
-        dest_btn = QPushButton("Browse")
-        dest_btn.clicked.connect(self.browse_dest)
-        dest_layout.addWidget(dest_btn)
-        folder_layout.addLayout(dest_layout)
+    def _build_organize_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
 
-        main_tab_layout.addWidget(folder_group)
+        folders = QGroupBox("Folders")
+        folder_layout = QVBoxLayout(folders)
+        folder_layout.addLayout(self._folder_row("Source:", "source_path", self.browse_source))
+        folder_layout.addLayout(
+            self._folder_row("Destination:", "dest_path", self.browse_dest)
+        )
+        layout.addWidget(folders)
 
-        # Options group
-        options_group = QGroupBox("Options")
-        options_layout = QVBoxLayout(options_group)
+        rules = QGroupBox("Organization Rules")
+        rules_grid = QGridLayout(rules)
 
-        # Overwrite existing files option
-        self.overwrite_checkbox = QCheckBox("Overwrite existing files")
-        options_layout.addWidget(self.overwrite_checkbox)
+        rules_grid.addWidget(QLabel("Sort by:"), 0, 0)
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems(
+            [
+                "Year",
+                "Artist",
+                "Album",
+                "Genre",
+                "Artist / Album",
+                "Decade",
+            ]
+        )
+        rules_grid.addWidget(self.mode_combo, 0, 1)
 
-        # Create folder for files with unknown year
+        rules_grid.addWidget(QLabel("File naming:"), 0, 2)
+        self.naming_combo = QComboBox()
+        self.naming_combo.addItems(
+            [
+                "Keep original filename",
+                "Artist - Title",
+                "Track - Artist - Title",
+                "Year - Artist - Title",
+            ]
+        )
+        rules_grid.addWidget(self.naming_combo, 0, 3)
+
+        rules_grid.addWidget(QLabel("Operation:"), 1, 0)
+        self.operation_combo = QComboBox()
+        self.operation_combo.addItems(["Copy files", "Move files"])
+        rules_grid.addWidget(self.operation_combo, 1, 1)
+
+        rules_grid.addWidget(QLabel("Duplicates:"), 1, 2)
+        self.duplicate_combo = QComboBox()
+        self.duplicate_combo.addItems(["Skip", "Overwrite", "Rename"])
+        rules_grid.addWidget(self.duplicate_combo, 1, 3)
+
+        layout.addWidget(rules)
+
+        options = QGroupBox("Options")
+        opt_layout = QVBoxLayout(options)
         self.unknown_year_checkbox = QCheckBox(
-            "Create 'Unknown Year' folder for files without year metadata"
+            "Place files without year/decade into an 'Unknown' folder"
         )
         self.unknown_year_checkbox.setChecked(True)
-        options_layout.addWidget(self.unknown_year_checkbox)
+        self.subfolders_checkbox = QCheckBox("Include subfolders")
+        self.subfolders_checkbox.setChecked(True)
+        self.dry_run_checkbox = QCheckBox("Dry run (preview only — don't copy or move)")
+        self.report_checkbox = QCheckBox("Generate HTML report after organizing")
+        self.report_checkbox.setChecked(True)
+        for cb in (
+            self.unknown_year_checkbox,
+            self.subfolders_checkbox,
+            self.dry_run_checkbox,
+            self.report_checkbox,
+        ):
+            opt_layout.addWidget(cb)
+        layout.addWidget(options)
 
-        main_tab_layout.addWidget(options_group)
-
-        # Progress bar
-        progress_layout = QHBoxLayout()
-        progress_layout.addWidget(QLabel("Progress:"))
+        progress_row = QHBoxLayout()
+        progress_row.addWidget(QLabel("Progress:"))
         self.progress_bar = QProgressBar()
-        progress_layout.addWidget(self.progress_bar)
-        main_tab_layout.addLayout(progress_layout)
+        self.progress_bar.setValue(0)
+        progress_row.addWidget(self.progress_bar)
+        layout.addLayout(progress_row)
 
-        # Action buttons
-        button_layout = QHBoxLayout()
+        btn_row = QHBoxLayout()
         self.start_button = QPushButton("Start Organizing")
+        self.start_button.setObjectName("startBtn")
         self.start_button.clicked.connect(self.start_processing)
-        self.start_button.setStyleSheet(
-            "background-color: #4CAF50; color: white; padding: 8px;"
-        )
-        button_layout.addWidget(self.start_button)
-
         self.stop_button = QPushButton("Stop")
-        self.stop_button.clicked.connect(self.stop_processing)
+        self.stop_button.setObjectName("stopBtn")
         self.stop_button.setEnabled(False)
-        self.stop_button.setStyleSheet(
-            "background-color: #f44336; color: white; padding: 8px;"
-        )
-        button_layout.addWidget(self.stop_button)
+        self.stop_button.clicked.connect(self.stop_processing)
+        self.open_dest_button = QPushButton("Open Destination")
+        self.open_dest_button.clicked.connect(self.open_destination)
+        btn_row.addWidget(self.start_button)
+        btn_row.addWidget(self.stop_button)
+        btn_row.addStretch()
+        btn_row.addWidget(self.open_dest_button)
+        layout.addLayout(btn_row)
 
-        main_tab_layout.addLayout(button_layout)
-
-        # Log output
-        log_group = QGroupBox("Log")
+        log_group = QGroupBox("Activity Log")
         log_layout = QVBoxLayout(log_group)
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
+        self.log_output.setMaximumHeight(200)
         log_layout.addWidget(self.log_output)
-        main_tab_layout.addWidget(log_group)
+        layout.addWidget(log_group)
 
-        # Add main tab to tab widget
-        self.tabs.addTab(main_tab, "Organizer")
+        return tab
 
-        # Statistics tab
-        stats_tab = QWidget()
-        stats_layout = QVBoxLayout(stats_tab)
+    def _build_library_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        toolbar = QHBoxLayout()
+        self.scan_button = QPushButton("Scan Library")
+        self.scan_button.clicked.connect(self.scan_library)
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText("Filter by title, artist, album, year, genre...")
+        self.filter_input.textChanged.connect(self.apply_library_filter)
+        self.missing_year_only = QCheckBox("Show missing year only")
+        self.missing_year_only.stateChanged.connect(self.apply_library_filter)
+        toolbar.addWidget(self.scan_button)
+        toolbar.addWidget(self.filter_input, stretch=1)
+        toolbar.addWidget(self.missing_year_only)
+        layout.addLayout(toolbar)
+
+        self.library_table = QTableWidget(0, 7)
+        self.library_table.setHorizontalHeaderLabels(
+            ["Title", "Artist", "Album", "Year", "Genre", "Duration", "File"]
+        )
+        self.library_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.library_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.library_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.library_table.setAlternatingRowColors(True)
+        layout.addWidget(self.library_table)
+
+        self.library_summary = QLabel("No library scanned yet.")
+        self.library_summary.setStyleSheet("color:#888; padding:4px;")
+        layout.addWidget(self.library_summary)
+
+        return tab
+
+    def _build_stats_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        cards = QHBoxLayout()
+        self.card_total = StatCard("Total Files")
+        self.card_copied = StatCard("Copied")
+        self.card_skipped = StatCard("Skipped")
+        self.card_errors = StatCard("Errors")
+        for card in (self.card_total, self.card_copied, self.card_skipped, self.card_errors):
+            cards.addWidget(card)
+        layout.addLayout(cards)
 
         self.stats_table = QTableWidget(0, 2)
-        self.stats_table.setHorizontalHeaderLabels(["Year", "Number of Songs"])
+        self.stats_table.setHorizontalHeaderLabels(["Category", "Count"])
         self.stats_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        stats_layout.addWidget(self.stats_table)
+        layout.addWidget(self.stats_table)
 
-        self.tabs.addTab(stats_tab, "Statistics")
+        export_row = QHBoxLayout()
+        self.export_csv_btn = QPushButton("Export CSV")
+        self.export_csv_btn.clicked.connect(self.export_stats_csv)
+        self.open_report_btn = QPushButton("Open HTML Report")
+        self.open_report_btn.clicked.connect(self.open_last_report)
+        self.open_report_btn.setEnabled(False)
+        export_row.addWidget(self.export_csv_btn)
+        export_row.addWidget(self.open_report_btn)
+        export_row.addStretch()
+        layout.addLayout(export_row)
 
-        # Set the central widget
-        self.setCentralWidget(main_widget)
+        self.last_report_path: Path | None = None
+        return tab
 
-        # Initialize with a welcome message
-        self.log(
-            "Welcome to Organize My Beats! Select source and destination folders to begin."
+    def _load_settings(self):
+        self.source_path.setText(self.settings.value("source", ""))
+        self.dest_path.setText(self.settings.value("dest", ""))
+        self.mode_combo.setCurrentIndex(int(self.settings.value("mode", 0)))
+        self.naming_combo.setCurrentIndex(int(self.settings.value("naming", 0)))
+        self.operation_combo.setCurrentIndex(int(self.settings.value("operation", 0)))
+        self.unknown_year_checkbox.setChecked(
+            self.settings.value("unknown_year", "true") == "true"
+        )
+        self.subfolders_checkbox.setChecked(
+            self.settings.value("subfolders", "true") == "true"
         )
 
+    def _save_settings(self):
+        self.settings.setValue("source", self.source_path.text())
+        self.settings.setValue("dest", self.dest_path.text())
+        self.settings.setValue("mode", self.mode_combo.currentIndex())
+        self.settings.setValue("naming", self.naming_combo.currentIndex())
+        self.settings.setValue("operation", self.operation_combo.currentIndex())
+        self.settings.setValue("unknown_year", self.unknown_year_checkbox.isChecked())
+        self.settings.setValue("subfolders", self.subfolders_checkbox.isChecked())
+
     def browse_source(self):
-        """Open file dialog to select source folder."""
         folder = QFileDialog.getExistingDirectory(self, "Select Source Folder")
         if folder:
             self.source_path.setText(folder)
 
     def browse_dest(self):
-        """Open file dialog to select destination folder."""
         folder = QFileDialog.getExistingDirectory(self, "Select Destination Folder")
         if folder:
             self.dest_path.setText(folder)
 
-    def log(self, message):
-        """Add a message to the log output."""
+    def open_destination(self):
+        dest = self.dest_path.text().strip()
+        if dest and Path(dest).exists():
+            webbrowser.open(f"file://{Path(dest).resolve()}")
+        else:
+            QMessageBox.information(self, "No Destination", "Set a valid destination folder first.")
+
+    def log(self, message: str):
         self.log_output.append(message)
-        # Auto-scroll to the bottom
         self.log_output.verticalScrollBar().setValue(
             self.log_output.verticalScrollBar().maximum()
         )
 
-    def start_processing(self):
-        """Start the music organizing process."""
-        source = self.source_path.text()
-        dest = self.dest_path.text()
+    def _get_options(self) -> OrganizeOptions:
+        mode_map = {
+            0: OrganizeMode.YEAR,
+            1: OrganizeMode.ARTIST,
+            2: OrganizeMode.ALBUM,
+            3: OrganizeMode.GENRE,
+            4: OrganizeMode.ARTIST_ALBUM,
+            5: OrganizeMode.DECADE,
+        }
+        naming_map = {
+            0: NamingTemplate.ORIGINAL,
+            1: NamingTemplate.ARTIST_TITLE,
+            2: NamingTemplate.TRACK_ARTIST_TITLE,
+            3: NamingTemplate.YEAR_ARTIST_TITLE,
+        }
+        duplicate_map = {
+            0: DuplicateMode.SKIP,
+            1: DuplicateMode.OVERWRITE,
+            2: DuplicateMode.RENAME,
+        }
+        return OrganizeOptions(
+            mode=mode_map[self.mode_combo.currentIndex()],
+            naming=naming_map[self.naming_combo.currentIndex()],
+            operation=(
+                OperationMode.MOVE
+                if self.operation_combo.currentIndex() == 1
+                else OperationMode.COPY
+            ),
+            duplicate=duplicate_map[self.duplicate_combo.currentIndex()],
+            unknown_year_folder=self.unknown_year_checkbox.isChecked(),
+            dry_run=self.dry_run_checkbox.isChecked(),
+            include_subfolders=self.subfolders_checkbox.isChecked(),
+            generate_report=self.report_checkbox.isChecked(),
+        )
 
+    def _validate_paths(self) -> tuple[Path, Path] | None:
+        source = self.source_path.text().strip()
+        dest = self.dest_path.text().strip()
         if not source or not dest:
-            QMessageBox.warning(
-                self,
-                "Missing Information",
-                "Please select both source and destination folders.",
-            )
-            return
+            QMessageBox.warning(self, "Missing Information", "Select both source and destination folders.")
+            return None
 
         source_path = Path(source)
         dest_path = Path(dest)
 
         if not source_path.exists():
+            QMessageBox.warning(self, "Invalid Source", "The source folder does not exist.")
+            return None
+
+        if source_path.resolve() == dest_path.resolve():
             QMessageBox.warning(
-                self, "Invalid Source", "The source folder does not exist."
+                self,
+                "Invalid Paths",
+                "Source and destination cannot be the same folder.",
             )
-            return
+            return None
 
         if not dest_path.exists():
-            # Ask if we should create the destination folder
             reply = QMessageBox.question(
                 self,
                 "Create Destination",
-                f"The destination folder '{dest}' does not exist. Create it?",
+                f"Create destination folder?\n{dest}",
                 QMessageBox.Yes | QMessageBox.No,
             )
-            if reply == QMessageBox.Yes:
-                try:
-                    dest_path.mkdir(parents=True)
-                except Exception as e:
-                    QMessageBox.critical(
-                        self, "Error", f"Could not create destination folder: {str(e)}"
-                    )
-                    return
-            else:
+            if reply != QMessageBox.Yes:
+                return None
+            try:
+                dest_path.mkdir(parents=True)
+            except OSError as exc:
+                QMessageBox.critical(self, "Error", f"Could not create destination: {exc}")
+                return None
+
+        return source_path, dest_path
+
+    def scan_library(self):
+        paths = self._validate_paths()
+        if not paths:
+            return
+        source_path, _ = paths
+
+        self.scan_button.setEnabled(False)
+        self.statusBar().showMessage("Scanning library...")
+        self.worker = ScanWorker(source_path.as_posix(), self.subfolders_checkbox.isChecked())
+        self.worker.progress.connect(self._on_scan_progress)
+        self.worker.finished.connect(self._on_scan_complete)
+        self.worker.start()
+
+    def _on_scan_progress(self, current: int, total: int, message: str):
+        if total:
+            self.progress_bar.setValue(int((current / total) * 100))
+        self.statusBar().showMessage(message)
+
+    def _on_scan_complete(self, tracks: list):
+        self.scan_results = tracks
+        self._populate_library_table(tracks)
+        self.scan_button.setEnabled(True)
+        self.progress_bar.setValue(100)
+        missing = sum(1 for t in tracks if not t.has_year)
+        self.library_summary.setText(
+            f"{len(tracks)} tracks found  •  {missing} missing year  •  "
+            f"{len({t.artist for t in tracks})} artists  •  "
+            f"{len({t.album for t in tracks})} albums"
+        )
+        self.statusBar().showMessage(f"Scan complete — {len(tracks)} tracks found")
+        self.tabs.setCurrentIndex(1)
+
+    def _populate_library_table(self, tracks: list[TrackMetadata]):
+        self.library_table.setRowCount(len(tracks))
+        for row, track in enumerate(tracks):
+            values = [
+                track.title,
+                track.artist,
+                track.album,
+                track.year or "—",
+                track.genre,
+                format_duration(track.duration),
+                track.path.name,
+            ]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                if not track.has_year:
+                    item.setBackground(QColor("#4a3030"))
+                self.library_table.setItem(row, col, item)
+
+    def apply_library_filter(self):
+        query = self.filter_input.text().lower().strip()
+        missing_only = self.missing_year_only.isChecked()
+        filtered = []
+        for track in self.scan_results:
+            if missing_only and track.has_year:
+                continue
+            haystack = " ".join(
+                [
+                    track.title,
+                    track.artist,
+                    track.album,
+                    track.year or "",
+                    track.genre,
+                    track.path.name,
+                ]
+            ).lower()
+            if not query or query in haystack:
+                filtered.append(track)
+        self._populate_library_table(filtered)
+        self.library_summary.setText(f"Showing {len(filtered)} of {len(self.scan_results)} tracks")
+
+    def start_processing(self):
+        paths = self._validate_paths()
+        if not paths:
+            return
+        source_path, dest_path = paths
+        self._save_settings()
+
+        options = self._get_options()
+        if options.operation == OperationMode.MOVE:
+            reply = QMessageBox.warning(
+                self,
+                "Move Files",
+                "Move will remove files from the source folder.\nContinue?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
                 return
 
-        # Clear previous results
         self.log_output.clear()
         self.progress_bar.setValue(0)
         self.stats_table.setRowCount(0)
 
-        # Get options
-        options = {
-            "overwrite": self.overwrite_checkbox.isChecked(),
-            "unknown_year_folder": self.unknown_year_checkbox.isChecked(),
-        }
+        prefix = "[DRY RUN] " if options.dry_run else ""
+        self.log(f"{prefix}Starting organization...")
+        self.log(f"Mode: {self.mode_combo.currentText()}  |  Naming: {self.naming_combo.currentText()}")
+        self.log(f"Source: {source_path}")
+        self.log(f"Destination: {dest_path}")
 
-        # Create and start worker thread
-        self.worker = WorkerThread(source, dest, options)
-        self.worker.update_signal.connect(self.log)
-        self.worker.progress_signal.connect(self.update_progress)
-        self.worker.finished_signal.connect(self.process_complete)
-
-        # Update UI state
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
-
-        # Start processing
-        self.log(f"🚀 Starting organization process...")
-        self.log(f"📂 Source: {source}")
-        self.log(f"📁 Destination: {dest}")
+        self.worker = OrganizeWorker(source_path.as_posix(), dest_path.as_posix(), options)
+        self.worker.progress.connect(self._on_organize_progress)
+        self.worker.finished.connect(self._on_organize_complete)
         self.worker.start()
 
     def stop_processing(self):
-        """Stop the current processing operation."""
         if self.worker and self.worker.isRunning():
             reply = QMessageBox.question(
                 self,
                 "Confirm Stop",
-                "Are you sure you want to stop the current operation?",
+                "Stop the current operation?",
                 QMessageBox.Yes | QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
-                self.log("⚠️ Stopping operation...")
                 self.worker.stop()
-                self.worker.wait()  # Wait for the thread to finish
-                self.log("⚠️ Operation stopped by user")
-                self.update_ui_state_stopped()
+                self.worker.wait()
+                self.log("Operation stopped.")
+                self._set_idle_state()
 
-    def update_progress(self, value):
-        """Update the progress bar."""
-        self.progress_bar.setValue(value)
+    def _on_organize_progress(self, current: int, total: int, message: str):
+        if total:
+            self.progress_bar.setValue(int((current / total) * 100))
+        self.log(message)
+        self.statusBar().showMessage(message)
 
-    def process_complete(self, stats):
-        """Handle completion of the processing operation."""
-        self.log("✅ Organization complete!")
-        self.log(f"📊 Statistics:")
-        self.log(f"   - Total files processed: {stats['total']}")
-        self.log(f"   - Files copied: {stats['copied']}")
-        self.log(f"   - Files skipped (already exist): {stats['skipped']}")
-        self.log(f"   - Files without year metadata: {stats['no_year']}")
-        self.log(f"   - Errors encountered: {stats['errors']}")
+    def _on_organize_complete(self, stats: OrganizeStats):
+        self.last_stats = stats
+        self.log("Organization complete.")
+        self.log(
+            f"Total: {stats.total}  |  Copied: {stats.copied}  |  Moved: {stats.moved}  |  "
+            f"Skipped: {stats.skipped}  |  No metadata: {stats.no_metadata}  |  Errors: {stats.errors}"
+        )
 
-        # Update statistics table
-        self.update_statistics(stats["years"])
+        self.card_total.set_value(str(stats.total))
+        self.card_copied.set_value(str(stats.copied + stats.moved))
+        self.card_skipped.set_value(str(stats.skipped))
+        self.card_errors.set_value(str(stats.errors))
 
-        # Switch to statistics tab
-        self.tabs.setCurrentIndex(1)
+        options = self._get_options()
+        bucket = stats.bucket_for(options.mode)
+        sorted_items = sorted(bucket.items(), key=lambda x: x[0], reverse=True)
+        self.stats_table.setRowCount(len(sorted_items))
+        label = options.mode.value.replace("_", " ").title()
+        self.stats_table.setHorizontalHeaderLabels([label, "Count"])
+        for row, (key, count) in enumerate(sorted_items):
+            self.stats_table.setItem(row, 0, QTableWidgetItem(key))
+            count_item = QTableWidgetItem(str(count))
+            count_item.setTextAlignment(Qt.AlignCenter)
+            self.stats_table.setItem(row, 1, count_item)
 
-        # Update UI state
-        self.update_ui_state_stopped()
+        if options.generate_report and not options.dry_run:
+            self.last_report_path = self._generate_report(stats)
+            self.open_report_btn.setEnabled(self.last_report_path is not None)
 
-    def update_ui_state_stopped(self):
-        """Update UI state when processing is stopped or completed."""
+        self.tabs.setCurrentIndex(2)
+        self._set_idle_state()
+        self.statusBar().showMessage("Organization complete")
+
+    def _generate_report(self, stats: OrganizeStats) -> Path | None:
+        dest = Path(self.dest_path.text().strip())
+        report = BatchReport(dest)
+        report.stats["total_files"] = stats.total
+        report.stats["processed_files"] = stats.copied + stats.moved
+        report.stats["skipped_files"] = stats.skipped
+        report.stats["error_files"] = stats.errors
+        report.stats["years"] = stats.years
+        report.stats["formats"] = stats.formats
+        report.add_source_folder(
+            Path(self.source_path.text().strip()),
+            stats.total,
+            0,
+            0.0,
+        )
+        try:
+            path = report.generate_html_report()
+            self.log(f"Report saved: {path}")
+            return path
+        except OSError as exc:
+            self.log(f"Could not save report: {exc}")
+            return None
+
+    def export_stats_csv(self):
+        if self.stats_table.rowCount() == 0:
+            QMessageBox.information(self, "No Data", "Run an organization first to export statistics.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Statistics", "organize_stats.csv", "CSV Files (*.csv)"
+        )
+        if not path:
+            return
+        with open(path, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(
+                [
+                    self.stats_table.horizontalHeaderItem(0).text(),
+                    self.stats_table.horizontalHeaderItem(1).text(),
+                ]
+            )
+            for row in range(self.stats_table.rowCount()):
+                writer.writerow(
+                    [
+                        self.stats_table.item(row, 0).text(),
+                        self.stats_table.item(row, 1).text(),
+                    ]
+                )
+        self.statusBar().showMessage(f"Exported to {path}")
+
+    def open_last_report(self):
+        if self.last_report_path and self.last_report_path.exists():
+            webbrowser.open(self.last_report_path.as_uri())
+
+    def _set_idle_state(self):
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
 
-    def update_statistics(self, years_data):
-        """Update the statistics table with year data."""
-        # Sort years in descending order
-        sorted_years = sorted(years_data.items(), key=lambda x: x[0], reverse=True)
-
-        # Clear and resize the table
-        self.stats_table.setRowCount(len(sorted_years))
-
-        # Fill the table with data
-        for row, (year, count) in enumerate(sorted_years):
-            year_item = QTableWidgetItem(year)
-            count_item = QTableWidgetItem(str(count))
-            count_item.setTextAlignment(Qt.AlignCenter)
-
-            self.stats_table.setItem(row, 0, year_item)
-            self.stats_table.setItem(row, 1, count_item)
-
 
 def main():
-    """Main entry point for the application."""
     app = QApplication(sys.argv)
     window = MusicOrganizerAdvanced()
     window.show()

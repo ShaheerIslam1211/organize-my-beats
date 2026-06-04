@@ -32,7 +32,22 @@ pip install -e .
 
 ## Usage
 
-### Advanced GUI (Recommended)
+### macOS App (Recommended)
+
+Build a double-clickable Mac app — no terminal or virtual environment needed after install:
+
+```bash
+chmod +x scripts/build_mac_app.sh
+./scripts/build_mac_app.sh
+```
+
+When the build finishes, open `dist/Organize My Beats.app`. Drag it into **Applications** to keep it in Launchpad and Spotlight like any other Mac app.
+
+**First launch:** macOS may block the app because it is not signed with an Apple Developer certificate. Right-click the app → **Open** → **Open** again to confirm. After that, double-click works normally.
+
+> Re-run the build script whenever you pull updates to rebuild the app.
+
+### Advanced GUI (Development)
 
 The advanced GUI provides a modern interface with more features:
 
